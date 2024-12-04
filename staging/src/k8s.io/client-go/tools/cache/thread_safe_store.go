@@ -376,7 +376,9 @@ func (c *threadSafeMap) Resync() error {
 // NewThreadSafeStore creates a new instance of ThreadSafeStore.
 func NewThreadSafeStore(indexers Indexers, indices Indices) ThreadSafeStore {
 	return &threadSafeMap{
+		//	实际存储位置
 		items: map[string]interface{}{},
+		//	索引 TODO
 		index: &storeIndex{
 			indexers: indexers,
 			indices:  indices,

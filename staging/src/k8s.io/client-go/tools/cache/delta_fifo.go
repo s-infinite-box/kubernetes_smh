@@ -257,6 +257,7 @@ func NewDeltaFIFOWithOptions(opts DeltaFIFOOptions) *DeltaFIFO {
 		emitDeltaTypeReplaced: opts.EmitDeltaTypeReplaced,
 		transformer:           opts.Transformer,
 	}
+	//	直接加锁  阻塞所有wait线程：queueActionLocked
 	f.cond.L = &f.lock
 	return f
 }

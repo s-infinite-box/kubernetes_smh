@@ -15,3 +15,8 @@ limitations under the License.
 */
 
 package apiserver // import "k8s.io/apiserver"
+
+/*
+api-server 特性枚举
+staging/src/k8s.io/apiserver/pkg/features/kube_features.go
+*/

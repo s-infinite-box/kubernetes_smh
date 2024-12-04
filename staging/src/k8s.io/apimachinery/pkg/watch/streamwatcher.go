@@ -60,6 +60,7 @@ type StreamWatcher struct {
 
 // NewStreamWatcher creates a StreamWatcher from the given decoder.
 func NewStreamWatcher(d Decoder, r Reporter) *StreamWatcher {
+	//	实际创建watch.Interface
 	sw := &StreamWatcher{
 		source:   d,
 		reporter: r,
@@ -73,6 +74,7 @@ func NewStreamWatcher(d Decoder, r Reporter) *StreamWatcher {
 		// Therefore a dedicated stop channel is used to resolve this blocking.
 		done: make(chan struct{}),
 	}
+	//	开启一个goroutine来读取服务端的返回
 	go sw.receive()
 	return sw
 }
@@ -102,6 +104,7 @@ func (sw *StreamWatcher) receive() {
 	defer close(sw.result)
 	defer sw.Stop()
 	for {
+		//	解码器读取一个事件
 		action, obj, err := sw.source.Decode()
 		if err != nil {
 			switch err {
@@ -127,6 +130,7 @@ func (sw *StreamWatcher) receive() {
 		select {
 		case <-sw.done:
 			return
+		//	吐一个event到sw.result(sw的一个channel)
 		case sw.result <- Event{
 			Type:   action,
 			Object: obj,

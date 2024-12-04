@@ -127,6 +127,7 @@ func NewSharedInformerFactoryWithOptions(client kubernetes.Interface, defaultRes
 		client:           client,
 		namespace:        v1.NamespaceAll,
 		defaultResync:    defaultResync,
+		//	存储当前的informer
 		informers:        make(map[reflect.Type]cache.SharedIndexInformer),
 		startedInformers: make(map[reflect.Type]bool),
 		customResync:     make(map[reflect.Type]time.Duration),

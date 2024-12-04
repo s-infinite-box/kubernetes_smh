@@ -57,7 +57,8 @@ func (c *Config) Complete() (CompletedConfig, error) {
 	return CompletedConfig{&completedConfig{
 		Options: c.Options,
 
-		Aggregator:    c.Aggregator.Complete(),
+		Aggregator: c.Aggregator.Complete(),
+		//	ServiceIPRange 处理
 		ControlPlane:  c.ControlPlane.Complete(),
 		ApiExtensions: c.ApiExtensions.Complete(),
 
@@ -70,20 +71,20 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
 	c := &Config{
 		Options: opts,
 	}
-
+	//	创建 kubeapi-server 配置
 	controlPlane, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(opts)
 	if err != nil {
 		return nil, err
 	}
 	c.ControlPlane = controlPlane
-
+	//	创建API扩展配置
 	apiExtensions, err := apiserver.CreateAPIExtensionsConfig(*controlPlane.GenericConfig, controlPlane.ExtraConfig.VersionedInformers, pluginInitializer, opts.CompletedOptions, opts.MasterCount,
 		serviceResolver, webhook.NewDefaultAuthenticationInfoResolverWrapper(controlPlane.ExtraConfig.ProxyTransport, controlPlane.GenericConfig.EgressSelector, controlPlane.GenericConfig.LoopbackClientConfig, controlPlane.GenericConfig.TracerProvider))
 	if err != nil {
 		return nil, err
 	}
 	c.ApiExtensions = apiExtensions
-
+	//	创建聚合器配置
 	aggregator, err := createAggregatorConfig(*controlPlane.GenericConfig, opts.CompletedOptions, controlPlane.ExtraConfig.VersionedInformers, serviceResolver, controlPlane.ExtraConfig.ProxyTransport, controlPlane.ExtraConfig.PeerProxy, pluginInitializer)
 	if err != nil {
 		return nil, err

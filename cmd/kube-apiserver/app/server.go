@@ -59,8 +59,10 @@ import (
 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
 
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
+	// 引入legacyscheme，内部的init方法实现资源注册表的注册
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/capabilities"
+	// 引入master，内部的init方法实现k8s所有资源的注册
 	"k8s.io/kubernetes/pkg/controlplane"
 	controlplaneapiserver "k8s.io/kubernetes/pkg/controlplane/apiserver"
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
@@ -103,18 +105,20 @@ cluster's shared state through which all other components interact.`,
 			}
 			cliflag.PrintFlags(fs)
 
-			// set default options
+			// set default options 默认参数配置
 			completedOptions, err := s.Complete()
 			if err != nil {
 				return err
 			}
 
-			// validate options
+			// validate options 验证参数
 			if errs := completedOptions.Validate(); len(errs) != 0 {
 				return utilerrors.NewAggregate(errs)
 			}
 			// add feature enablement metrics
 			utilfeature.DefaultMutableFeatureGate.AddMetrics()
+			// 启动k8s apiserver
+			//	SetupSignalHandler 监听系统信号，如果收到SIGTERM信号，则退出
 			return Run(completedOptions, genericapiserver.SetupSignalHandler())
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -149,36 +153,41 @@ func Run(opts options.CompletedOptions, stopCh <-chan struct{}) error {
 
 	klog.InfoS("Golang settings", "GOGC", os.Getenv("GOGC"), "GOMAXPROCS", os.Getenv("GOMAXPROCS"), "GOTRACEBACK", os.Getenv("GOTRACEBACK"))
 
+	//	创建3大服务所需配置kubeapi-server、kubeapi-extension-server、aggregator-apiserver
 	config, err := NewConfig(opts)
 	if err != nil {
 		return err
 	}
+	//	完成配置，填充有效值到需要用到的空字段
 	completed, err := config.Complete()
 	if err != nil {
 		return err
 	}
+	// 创建服务链
 	server, err := CreateServerChain(completed)
 	if err != nil {
 		return err
 	}
-
+	//	预运行
 	prepared, err := server.PrepareRun()
 	if err != nil {
 		return err
 	}
-
+	//	正式运行
 	return prepared.Run(stopCh)
 }
 
 // CreateServerChain creates the apiservers connected via delegation.
 func CreateServerChain(config CompletedConfig) (*aggregatorapiserver.APIAggregator, error) {
 	notFoundHandler := notfoundhandler.New(config.ControlPlane.GenericConfig.Serializer, genericapifilters.NoMuxAndDiscoveryIncompleteKey)
+	// 创建 kubeapi-extension-server 服务
 	apiExtensionsServer, err := config.ApiExtensions.New(genericapiserver.NewEmptyDelegateWithCustomHandler(notFoundHandler))
 	if err != nil {
 		return nil, err
 	}
 	crdAPIEnabled := config.ApiExtensions.GenericConfig.MergedResourceConfig.ResourceEnabled(apiextensionsv1.SchemeGroupVersion.WithResource("customresourcedefinitions"))
 
+	//	创建kubeapi-server 服务
 	kubeAPIServer, err := config.ControlPlane.New(apiExtensionsServer.GenericAPIServer)
 	if err != nil {
 		return nil, err
@@ -214,7 +223,7 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 	error,
 ) {
 	proxyTransport := CreateProxyTransport()
-
+	// 构建通用配置
 	genericConfig, versionedInformers, storageFactory, err := controlplaneapiserver.BuildGenericConfig(
 		opts.CompletedOptions,
 		[]*runtime.Scheme{legacyscheme.Scheme, extensionsapiserver.Scheme, aggregatorscheme.Scheme},
@@ -229,6 +238,7 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 	opts.Metrics.Apply()
 	serviceaccount.RegisterMetrics()
 
+	//	控制平面配置
 	config := &controlplane.Config{
 		GenericConfig: genericConfig,
 		ExtraConfig: controlplane.ExtraConfig{
@@ -293,6 +303,11 @@ func CreateKubeAPIServerConfig(opts options.CompletedOptions) (
 	}
 
 	// setup admission
+	// 准入器admission配置
+	// k8s资源在认证和授权通过，被持久化到etcd之前进入准入控制逻辑
+	// 准入控制包括：对请求的资源进行自定义操作（校验、修改、拒绝）
+	// k8s支持31种准入控制
+	// 准入控制器通过Plugins数据结构统一注册、存放、管理
 	admissionConfig := &kubeapiserveradmission.Config{
 		ExternalInformers:    versionedInformers,
 		LoopbackClientConfig: genericConfig.LoopbackClientConfig,
