@@ -103,6 +103,7 @@ func (d *decoder) Decode(defaults *schema.GroupVersionKind, into runtime.Object)
 		base += n
 		break
 	}
+	//	资源解码器 TODO
 	return d.decoder.Decode(d.buf[:base], defaults, into)
 }
 

@@ -135,9 +135,11 @@ func New(c *Config) Controller {
 func (c *controller) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	go func() {
+		//	接受关闭信号
 		<-stopCh
 		c.config.Queue.Close()
 	}()
+	//	创建Reflector
 	r := NewReflectorWithOptions(
 		c.config.ListerWatcher,
 		c.config.ObjectType,
@@ -161,8 +163,11 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 
 	var wg wait.Group
 
+	//	Reflector.run ==> listAndWatch
+	//	首次fulllist，replace DeltaFIFO，开始watch
 	wg.StartWithChannel(stopCh, r.Run)
 
+	//	接受watch的对象 更新本地缓存，添加到processor的addCh
 	wait.Until(c.processLoop, time.Second, stopCh)
 	wg.Wait()
 }
@@ -192,6 +197,9 @@ func (c *controller) LastSyncResourceVersion() string {
 // also be helpful.
 func (c *controller) processLoop() {
 	for {
+		//	注意语法 PopProcessFunc(c.config.Process)
+		//	c.config.Process 是一个ProcessFunc 此处做了类型转换
+		//	ProcessFunc ==> PopProcessFunc
 		obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
 		if err != nil {
 			if err == ErrFIFOClosed {

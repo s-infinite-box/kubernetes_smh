@@ -56,7 +56,9 @@ func NewPodInformer(client kubernetes.Interface, namespace string, resyncPeriod 
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredPodInformer(client kubernetes.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+	//	创建SharedIndexInformer
 	return cache.NewSharedIndexInformer(
+		//	创建lw ListWatch
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -82,6 +84,7 @@ func (f *podInformer) defaultInformer(client kubernetes.Interface, resyncPeriod 
 }
 
 func (f *podInformer) Informer() cache.SharedIndexInformer {
+	//	查看factory里面是否有该informer 存在则返回 否则创建
 	return f.factory.InformerFor(&apicorev1.Pod{}, f.defaultInformer)
 }
 

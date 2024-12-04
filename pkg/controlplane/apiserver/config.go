@@ -120,7 +120,8 @@ func BuildGenericConfig(
 ) {
 	genericConfig = genericapiserver.NewConfig(legacyscheme.Codecs)
 	genericConfig.Flagz = s.Flagz
-	genericConfig.MergedResourceConfig = resourceConfig
+	// 配置启动、禁用GV
+	genericConfig.MergedResourceConfig = controlplane.DefaultAPIResourceConfigSource()
 
 	if lastErr = s.GenericServerRunOptions.ApplyTo(genericConfig); lastErr != nil {
 		return
@@ -140,6 +141,7 @@ func BuildGenericConfig(
 	genericConfig.LoopbackClientConfig.DisableCompression = true
 
 	kubeClientConfig := genericConfig.LoopbackClientConfig
+	//	创建客户端client
 	clientgoExternalClient, err := clientgoclientset.NewForConfig(kubeClientConfig)
 	if err != nil {
 		lastErr = fmt.Errorf("failed to create real external clientset: %w", err)
@@ -151,6 +153,7 @@ func BuildGenericConfig(
 		}
 		return obj, nil
 	}
+	//	创建客户端informerFactory
 	versionedInformers = clientgoinformers.NewSharedInformerFactoryWithOptions(clientgoExternalClient, 10*time.Minute, clientgoinformers.WithTransform(trim))
 
 	if lastErr = s.Features.ApplyTo(genericConfig, clientgoExternalClient, versionedInformers); lastErr != nil {
@@ -168,6 +171,8 @@ func BuildGenericConfig(
 		}
 	}
 	// wrap the definitions to revert any changes from disabled features
+	// openapi/swagger配置
+	// OpenAPIConfig用于生成OpenAPI规范
 	getOpenAPIDefinitions = openapi.GetOpenAPIDefinitionsWithoutDisabledFeatures(getOpenAPIDefinitions)
 	namer := openapinamer.NewDefinitionNamer(schemes...)
 	genericConfig.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(getOpenAPIDefinitions, namer)
@@ -189,10 +194,14 @@ func BuildGenericConfig(
 		s.Etcd.StorageConfig.Transport.TracerProvider = noopoteltrace.NewTracerProvider()
 	}
 
+	// etcd配置
+	// storageFactoryConfig对象定义了kube-apiserver与etcd的交互方式，如：etcd认证、地址、存储前缀等
+	// 该对象也定义了资源存储方式，如：资源信息、资源编码信息、资源状态等
 	storageFactoryConfig := kubeapiserver.NewStorageFactoryConfig()
 	storageFactoryConfig.CurrentVersion = genericConfig.EffectiveVersion
 	storageFactoryConfig.APIResourceConfig = genericConfig.MergedResourceConfig
 	storageFactoryConfig.DefaultResourceEncoding.SetEffectiveVersion(genericConfig.EffectiveVersion)
+	//	创建storageFactory
 	storageFactory, lastErr = storageFactoryConfig.Complete(s.Etcd).New()
 	if lastErr != nil {
 		return
@@ -207,10 +216,15 @@ func BuildGenericConfig(
 	ctx := wait.ContextForChannel(genericConfig.DrainedNotify())
 
 	// Authentication.ApplyTo requires already applied OpenAPIConfig and EgressSelector if present
+	// 认证配置
+	// 内部调用 authenticatorConfig.New()
+	// k8s提供9种认证机制，每种认证机制被实例化后都成为认证器
 	if lastErr = s.Authentication.ApplyTo(ctx, &genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, genericConfig.OpenAPIV3Config, clientgoExternalClient, versionedInformers, genericConfig.APIServerID); lastErr != nil {
 		return
 	}
 
+	// 授权配置
+	// k8e提供6种授权机制，每种授权机制被实例化后都成为授权器
 	var enablesRBAC bool
 	genericConfig.Authorization.Authorizer, genericConfig.RuleResolver, enablesRBAC, err = BuildAuthorizer(
 		ctx,

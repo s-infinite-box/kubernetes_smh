@@ -237,7 +237,8 @@ func NewReflectorWithOptions(lw ListerWatcher, expectedType interface{}, store S
 		minWatchTimeout: minWatchTimeout,
 		typeDescription: options.TypeDescription,
 		listerWatcher:   lw,
-		store:           store,
+		//	DeltaFIFO
+		store: store,
 		// We used to make the call every 1sec (1 QPS), the goal here is to achieve ~98% traffic reduction when
 		// API server is not healthy. With these parameters, backoff will stop at [30,60) sec interval which is
 		// 0.22 QPS. If we don't backoff for 2min, assume API server is healthy and we reset the backoff.
@@ -312,6 +313,7 @@ var internalPackages = []string{"client-go/tools/cache/"}
 func (r *Reflector) Run(stopCh <-chan struct{}) {
 	klog.V(3).Infof("Starting reflector %s (%s) from %s", r.typeDescription, r.resyncPeriod, r.name)
 	wait.BackoffUntil(func() {
+		//	查询和监听逻辑
 		if err := r.ListAndWatch(stopCh); err != nil {
 			r.watchErrorHandler(r, err)
 		}
@@ -349,9 +351,10 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	klog.V(3).Infof("Listing and watching %v from %s", r.typeDescription, r.name)
 	var err error
 	var w watch.Interface
+	//	解指针r.UseWatchList 若指针指向nil 返回def
 	useWatchList := ptr.Deref(r.UseWatchList, false)
+	//	首次启动fallbackToList=true   useWatchList相反
 	fallbackToList := !useWatchList
-
 	if useWatchList {
 		w, err = r.watchList(stopCh)
 		if w == nil && err == nil {

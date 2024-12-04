@@ -52,6 +52,7 @@ import (
 	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	"k8s.io/kubernetes/pkg/capabilities"
+	// 引入master，内部的init方法实现k8s所有资源的注册
 	"k8s.io/kubernetes/pkg/controlplane"
 	controlplaneapiserver "k8s.io/kubernetes/pkg/controlplane/apiserver"
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
@@ -97,18 +98,20 @@ cluster's shared state through which all other components interact.`,
 			}
 			cliflag.PrintFlags(fs)
 
-			// set default options
+			// set default options 默认参数配置
 			completedOptions, err := s.Complete(ctx)
 			if err != nil {
 				return err
 			}
 
-			// validate options
+			// validate options 验证参数
 			if errs := completedOptions.Validate(); len(errs) != 0 {
 				return utilerrors.NewAggregate(errs)
 			}
 			// add feature enablement metrics
 			featureGate.AddMetrics()
+			// 启动k8s apiserver
+			//	SetupSignalHandler 监听系统信号，如果收到SIGTERM信号，则退出
 			return Run(ctx, completedOptions)
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -144,29 +147,33 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 
 	klog.InfoS("Golang settings", "GOGC", os.Getenv("GOGC"), "GOMAXPROCS", os.Getenv("GOMAXPROCS"), "GOTRACEBACK", os.Getenv("GOTRACEBACK"))
 
+	//	创建3大服务所需配置kubeapi-server、kubeapi-extension-server、aggregator-apiserver
 	config, err := NewConfig(opts)
 	if err != nil {
 		return err
 	}
+	//	完成配置，填充有效值到需要用到的空字段
 	completed, err := config.Complete()
 	if err != nil {
 		return err
 	}
+	// 创建服务链
 	server, err := CreateServerChain(completed)
 	if err != nil {
 		return err
 	}
-
+	//	预运行
 	prepared, err := server.PrepareRun()
 	if err != nil {
 		return err
 	}
-
+	//	正式运行
 	return prepared.Run(ctx)
 }
 
 // CreateServerChain creates the apiservers connected via delegation.
 func CreateServerChain(config CompletedConfig) (*aggregatorapiserver.APIAggregator, error) {
+	// 创建 kubeapi-extension-server 服务
 	notFoundHandler := notfoundhandler.New(config.KubeAPIs.ControlPlane.Generic.Serializer, genericapifilters.NoMuxAndDiscoveryIncompleteKey)
 	apiExtensionsServer, err := config.ApiExtensions.New(genericapiserver.NewEmptyDelegateWithCustomHandler(notFoundHandler))
 	if err != nil {
@@ -174,6 +181,7 @@ func CreateServerChain(config CompletedConfig) (*aggregatorapiserver.APIAggregat
 	}
 	crdAPIEnabled := config.ApiExtensions.GenericConfig.MergedResourceConfig.ResourceEnabled(apiextensionsv1.SchemeGroupVersion.WithResource("customresourcedefinitions"))
 
+	//	创建kubeapi-server 服务
 	kubeAPIServer, err := config.KubeAPIs.New(apiExtensionsServer.GenericAPIServer)
 	if err != nil {
 		return nil, err

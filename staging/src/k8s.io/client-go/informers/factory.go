@@ -124,9 +124,10 @@ func NewFilteredSharedInformerFactory(client kubernetes.Interface, defaultResync
 // NewSharedInformerFactoryWithOptions constructs a new instance of a SharedInformerFactory with additional options.
 func NewSharedInformerFactoryWithOptions(client kubernetes.Interface, defaultResync time.Duration, options ...SharedInformerOption) SharedInformerFactory {
 	factory := &sharedInformerFactory{
-		client:           client,
-		namespace:        v1.NamespaceAll,
-		defaultResync:    defaultResync,
+		client:        client,
+		namespace:     v1.NamespaceAll,
+		defaultResync: defaultResync,
+		//	存储当前的informer
 		informers:        make(map[reflect.Type]cache.SharedIndexInformer),
 		startedInformers: make(map[reflect.Type]bool),
 		customResync:     make(map[reflect.Type]time.Duration),

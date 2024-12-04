@@ -768,13 +768,15 @@ func (r *Request) watchInternal(ctx context.Context) (watch.Interface, runtime.D
 			return nil, nil, retry.WrapPreviousError(err)
 		}
 
+		//	构建req
 		req, err := r.newHTTPRequest(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-
+		//	与服务端简历链接
 		resp, err := client.Do(req)
 		retry.After(ctx, r, resp, err)
+		//	创建watcher对象
 		if err == nil && resp.StatusCode == http.StatusOK {
 			return r.newStreamWatcher(resp)
 		}
@@ -975,6 +977,7 @@ func (r *Request) newStreamWatcher(resp *http.Response) (watch.Interface, runtim
 	if err != nil {
 		klog.V(4).Infof("Unexpected content type from the server: %q: %v", contentType, err)
 	}
+	//	资源对象Decoder TODO
 	objectDecoder, streamingSerializer, framer, err := r.contentConfig.Negotiator.StreamDecoder(mediaType, params)
 	if err != nil {
 		return nil, nil, err
@@ -983,8 +986,10 @@ func (r *Request) newStreamWatcher(resp *http.Response) (watch.Interface, runtim
 	handleWarnings(resp.Header, r.warningHandler)
 
 	frameReader := framer.NewFrameReader(resp.Body)
+	//	创建watcher流解码
 	watchEventDecoder := streaming.NewDecoder(frameReader, streamingSerializer)
 
+	//	构建watch.Interface
 	return watch.NewStreamWatcher(
 		restclientwatch.NewDecoder(watchEventDecoder, objectDecoder),
 		// use 500 to indicate that the cause of the error is unknown - other error codes

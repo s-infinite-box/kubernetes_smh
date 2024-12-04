@@ -267,17 +267,22 @@ func NewSharedIndexInformer(lw ListerWatcher, exampleObject runtime.Object, defa
 // `minimumResyncPeriod` defined in this file.
 func NewSharedIndexInformerWithOptions(lw ListerWatcher, exampleObject runtime.Object, options SharedIndexInformerOptions) SharedIndexInformer {
 	realClock := &clock.RealClock{}
-
+	//	最终创建的sharedIndexInformer对象
 	return &sharedIndexInformer{
-		indexer:                         NewIndexer(DeletionHandlingMetaNamespaceKeyFunc, options.Indexers),
-		processor:                       &sharedProcessor{clock: realClock},
-		listerWatcher:                   lw,
+		//	本地缓存 此对象数据与etcd保持一致  底层为线程安全的map
+		indexer: NewIndexer(DeletionHandlingMetaNamespaceKeyFunc, options.Indexers),
+		//	存储所有processorListener，processorListener是用户handle函数的包装类
+		processor: &sharedProcessor{clock: realClock},
+		//	资源对应的lw实现类
+		listerWatcher: lw,
+		//	资源类型
 		objectType:                      exampleObject,
 		objectDescription:               options.ObjectDescription,
 		resyncCheckPeriod:               options.ResyncPeriod,
 		defaultEventHandlerResyncPeriod: options.ResyncPeriod,
 		clock:                           realClock,
-		cacheMutationDetector:           NewCacheMutationDetector(fmt.Sprintf("%T", exampleObject)),
+		//	校验缓存是否异常
+		cacheMutationDetector: NewCacheMutationDetector(fmt.Sprintf("%T", exampleObject)),
 	}
 }
 
@@ -468,12 +473,14 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 		s.startedLock.Lock()
 		defer s.startedLock.Unlock()
 
+		//	创建DeltaFIFO
 		fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
 			KnownObjects:          s.indexer,
 			EmitDeltaTypeReplaced: true,
 			Transformer:           s.transform,
 		})
 
+		//	用于创建Controller
 		cfg := &Config{
 			Queue:             fifo,
 			ListerWatcher:     s.listerWatcher,
@@ -487,6 +494,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 			WatchErrorHandler: s.watchErrorHandler,
 		}
 
+		//	包装config对象
 		s.controller = New(cfg)
 		s.controller.(*controller).clock = s.clock
 		s.started = true
@@ -497,7 +505,9 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 	var wg wait.Group
 	defer wg.Wait()              // Wait for Processor to stop
 	defer close(processorStopCh) // Tell Processor to stop
+	//	缓存校验协程
 	wg.StartWithChannel(processorStopCh, s.cacheMutationDetector.Run)
+	//	用户handler处理协程
 	wg.StartWithChannel(processorStopCh, s.processor.run)
 
 	defer func() {
@@ -606,8 +616,13 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 		}
 	}
 
+	//	包装用户的handler
+	//	提供两个channel： addCh，nextCh
+	//	addCh在DeltaFIFO.POP添加时间对象
+	//	nextch读取addCh加入的对象，交给handler处理
 	listener := newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize, s.HasSynced)
 
+	//	添加到shareIndexInformer.processor.listeners，
 	if !s.started {
 		return s.processor.addListener(listener), nil
 	}
@@ -738,10 +753,12 @@ func (p *sharedProcessor) addListener(listener *processorListener) ResourceEvent
 	p.listenersLock.Lock()
 	defer p.listenersLock.Unlock()
 
+	//	若map不存在，创建一个map
 	if p.listeners == nil {
 		p.listeners = make(map[*processorListener]bool)
 	}
 
+	//	将handler包装对象作为key，value为bool，存入map
 	p.listeners[listener] = true
 
 	if p.listenersStarted {
@@ -799,7 +816,9 @@ func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 		p.listenersLock.RLock()
 		defer p.listenersLock.RUnlock()
 		for listener := range p.listeners {
+			//	从nextCh取对象消费
 			p.wg.Start(listener.run)
+			//	从addCh取对象加入nextCh
 			p.wg.Start(listener.pop)
 		}
 		p.listenersStarted = true

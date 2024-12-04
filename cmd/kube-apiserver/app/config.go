@@ -62,8 +62,9 @@ func (c *Config) Complete() (CompletedConfig, error) {
 	return CompletedConfig{&completedConfig{
 		Options: c.Options,
 
-		Aggregator:    c.Aggregator.Complete(),
-		KubeAPIs:      c.KubeAPIs.Complete(),
+		Aggregator: c.Aggregator.Complete(),
+		KubeAPIs:   c.KubeAPIs.Complete(),
+		//	ServiceIPRange 处理
 		ApiExtensions: c.ApiExtensions.Complete(),
 
 		ExtraConfig: c.ExtraConfig,
