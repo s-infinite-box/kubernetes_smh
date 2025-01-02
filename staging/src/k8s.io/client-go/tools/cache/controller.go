@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -79,7 +80,13 @@ type Config struct {
 	RetryOnError bool
 
 	// Called whenever the ListAndWatch drops the connection with an error.
+	//
+	// Contextual logging: WatchErrorHandlerWithContext should be used instead of WatchErrorHandler in code which supports contextual logging.
 	WatchErrorHandler WatchErrorHandler
+
+	// Called whenever the ListAndWatch drops the connection with an error
+	// and WatchErrorHandler is not set.
+	WatchErrorHandlerWithContext WatchErrorHandlerWithContext
 
 	// WatchListPageSize is the requested chunk size of initial and relist watch lists.
 	WatchListPageSize int64
@@ -104,12 +111,21 @@ type controller struct {
 // Controller is a low-level controller that is parameterized by a
 // Config and used in sharedIndexInformer.
 type Controller interface {
-	// Run does two things.  One is to construct and run a Reflector
+	// RunWithContext does two things.  One is to construct and run a Reflector
 	// to pump objects/notifications from the Config's ListerWatcher
 	// to the Config's Queue and possibly invoke the occasional Resync
 	// on that Queue.  The other is to repeatedly Pop from the Queue
 	// and process with the Config's ProcessFunc.  Both of these
-	// continue until `stopCh` is closed.
+	// continue until the context is canceled.
+	//
+	// It's an error to call RunWithContext more than once.
+	// RunWithContext blocks; call via go.
+	RunWithContext(ctx context.Context)
+
+	// Run does the same as RunWithContext with a stop channel instead of
+	// a context.
+	//
+	// Contextual logging: RunWithcontext should be used instead of Run in code which supports contextual logging.
 	Run(stopCh <-chan struct{})
 
 	// HasSynced delegates to the Config's Queue
@@ -129,14 +145,16 @@ func New(c *Config) Controller {
 	return ctlr
 }
 
-// Run begins processing items, and will continue until a value is sent down stopCh or it is closed.
-// It's an error to call Run more than once.
-// Run blocks; call via go.
+// Run implements [Controller.Run].
 func (c *controller) Run(stopCh <-chan struct{}) {
-	defer utilruntime.HandleCrash()
+	c.RunWithContext(wait.ContextForChannel(stopCh))
+}
+
+// RunWithContext implements [Controller.RunWithContext].
+func (c *controller) RunWithContext(ctx context.Context) {
+	defer utilruntime.HandleCrashWithContext(ctx)
 	go func() {
-		//	接受关闭信号
-		<-stopCh
+		<-ctx.Done()
 		c.config.Queue.Close()
 	}()
 	//	创建Reflector
@@ -154,7 +172,11 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 	r.ShouldResync = c.config.ShouldResync
 	r.WatchListPageSize = c.config.WatchListPageSize
 	if c.config.WatchErrorHandler != nil {
-		r.watchErrorHandler = c.config.WatchErrorHandler
+		r.watchErrorHandler = func(_ context.Context, r *Reflector, err error) {
+			c.config.WatchErrorHandler(r, err)
+		}
+	} else if c.config.WatchErrorHandlerWithContext != nil {
+		r.watchErrorHandler = c.config.WatchErrorHandlerWithContext
 	}
 
 	c.reflectorMutex.Lock()
@@ -165,10 +187,10 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 
 	//	Reflector.run ==> listAndWatch
 	//	首次fulllist，replace DeltaFIFO，开始watch
-	wg.StartWithChannel(stopCh, r.Run)
+	wg.StartWithContext(ctx, r.RunWithContext)
 
 	//	接受watch的对象 更新本地缓存，添加到processor的addCh
-	wait.Until(c.processLoop, time.Second, stopCh)
+	wait.UntilWithContext(ctx, c.processLoop, time.Second)
 	wg.Wait()
 }
 
@@ -190,16 +212,14 @@ func (c *controller) LastSyncResourceVersion() string {
 // TODO: Consider doing the processing in parallel. This will require a little thought
 // to make sure that we don't end up processing the same object multiple times
 // concurrently.
-//
-// TODO: Plumb through the stopCh here (and down to the queue) so that this can
-// actually exit when the controller is stopped. Or just give up on this stuff
-// ever being stoppable. Converting this whole package to use Context would
-// also be helpful.
-func (c *controller) processLoop() {
+func (c *controller) processLoop(ctx context.Context) {
 	for {
 		//	注意语法 PopProcessFunc(c.config.Process)
 		//	c.config.Process 是一个ProcessFunc 此处做了类型转换
 		//	ProcessFunc ==> PopProcessFunc
+		// TODO: Plumb through the ctx so that this can
+		// actually exit when the controller is stopped. Or just give up on this stuff
+		// ever being stoppable.
 		obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
 		if err != nil {
 			if err == ErrFIFOClosed {

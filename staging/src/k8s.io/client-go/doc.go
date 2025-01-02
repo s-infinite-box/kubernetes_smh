@@ -14,6 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package clientgo // import "k8s.io/client-go"
+package clientgo
 //	官文
 // https://link.csdn.net/?from_id=106320558&target=https%3A%2F%2Fgithub.com%2Fkubernetes%2Fclient-go
